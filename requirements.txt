@@ -1,0 +1,18 @@
+# CPU-only PyTorch (smaller, faster install - this project is CPU-only)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Core dependencies
+flask>=3.0.0
+waitress>=3.0.0
+
+# Supertonic + ONNX
+onnxruntime>=1.17.0
+transformers>=4.40.0
+supertonic>=0.6.0
+
+# Audio processing
+torch>=2.2.0,<=2.8.0
+torchaudio>=2.2.0,<=2.8.0
+scipy>=1.10.0
+numpy>=1.24.0
+soundfile>=0.12.0

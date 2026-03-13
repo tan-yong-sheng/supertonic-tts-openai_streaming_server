@@ -1,0 +1,73 @@
+# Docker Compose for SupertonicTTS OpenAI-Compatible Server
+#
+# Usage:
+#   docker compose up -d          # Start the server
+#   docker compose logs -f        # View logs
+#   docker compose down           # Stop the server
+#
+# Custom voices:
+#   Mount your own voices directory to /app/voices
+
+services:
+  supertonictts:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: supertonictts-openai-server:latest
+    container_name: supertonictts-server
+
+    ports:
+      - '${SUPERTONIC_PORT:-49112}:49112'
+
+    environment:
+      - SUPERTONIC_HOST=0.0.0.0
+      - SUPERTONIC_PORT=49112
+      - SUPERTONIC_VOICES_DIR=/app/voices
+      - SUPERTONIC_MODEL_NAME=${SUPERTONIC_MODEL_NAME:-supertonic-2}
+      - SUPERTONIC_MODEL_PATH=/home/supertonic/.cache/supertonic2
+      - SUPERTONIC_AUTO_DOWNLOAD=${SUPERTONIC_AUTO_DOWNLOAD:-true}
+      - SUPERTONIC_LOG_LEVEL=${SUPERTONIC_LOG_LEVEL:-INFO}
+      - SUPERTONIC_STREAM_DEFAULT=${SUPERTONIC_STREAM_DEFAULT:-true}
+      - SUPERTONIC_DIFFUSION_STEPS=${SUPERTONIC_DIFFUSION_STEPS:-5}
+      - SUPERTONIC_DEFAULT_SPEED=${SUPERTONIC_DEFAULT_SPEED:-1.0}
+      - SUPERTONIC_DEFAULT_LANG=${SUPERTONIC_DEFAULT_LANG:-en}
+      - SUPERTONIC_MAX_CHUNK_LENGTH=${SUPERTONIC_MAX_CHUNK_LENGTH:-300}
+      - SUPERTONIC_SILENCE_DURATION=${SUPERTONIC_SILENCE_DURATION:-0.3}
+      - SUPERTONIC_VOICE_STYLE_CACHE_DIR=/models/voice_styles
+      - SUPERTONIC_VOICE_EXTRACTOR_CMD=${SUPERTONIC_VOICE_EXTRACTOR_CMD:-}
+      - SUPERTONIC_VOICE_EXTRACTOR_TIMEOUT=${SUPERTONIC_VOICE_EXTRACTOR_TIMEOUT:-120}
+      # Hugging Face token for faster downloads (optional)
+      - HF_TOKEN=${HF_TOKEN:-}
+
+    volumes:
+      # Mount custom voices (optional - overrides bundled voices)
+      - ${SUPERTONIC_VOICES_DIR:-./voices}:/app/voices:ro
+      # If you want persistent model caching, mount a writable host directory:
+      # - ./models:/home/supertonic/.cache
+
+    restart: unless-stopped
+
+    # Resource limits (adjust based on your hardware)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://localhost:49112/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s # Model loading takes time
+
+# volumes:
+#   supertonic-models:
+#     name: supertonic-models

@@ -1,0 +1,6 @@
+pocket-tts-openai_streaming_server/
+supertonic-2-afterburner-fastAPI/
+
+.env
+.env.local
+.env.modal
