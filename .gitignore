@@ -1,6 +1,8 @@
 pocket-tts-openai_streaming_server/
 supertonic-2-afterburner-fastAPI/
 
+__pycache__
+
 .env
 .env.local
 .env.modal
