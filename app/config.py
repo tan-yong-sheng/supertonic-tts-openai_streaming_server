@@ -72,7 +72,6 @@ class Config:
 
     VOICES_DIR = os.environ.get('SUPERTONIC_VOICES_DIR', None)
 
-    STREAM_DEFAULT = os.environ.get('SUPERTONIC_STREAM_DEFAULT', 'false').lower() == 'true'
     TEXT_PREPROCESS_DEFAULT = (
         os.environ.get('SUPERTONIC_TEXT_PREPROCESS_DEFAULT', 'false').lower() == 'true'
     )

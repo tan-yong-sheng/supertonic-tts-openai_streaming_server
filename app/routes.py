@@ -76,7 +76,7 @@ class SpeechRequest(BaseModel):
     voice: StrictStr | None = None
     response_format: StrictStr | None = None
     format: StrictStr | None = None
-    stream: StrictBool | None = None
+    stream_format: StrictStr | None = None
     speed: StrictFloat | StrictInt | None = None
     steps: StrictInt | None = None
     lang: StrictStr | None = None
@@ -252,8 +252,17 @@ def _handle_validation_error(exc: ValidationError, raw_data: dict | None, reques
     if param == 'voice':
         return _error_response("'voice' must be a string", 400, request_id, param='voice')
 
-    if param == 'stream':
-        return _error_response("'stream' must be a boolean", 400, request_id, param='stream')
+    if param == 'stream_format':
+        provided = raw_data.get('stream_format') if isinstance(raw_data, dict) else None
+        _log_invalid_param(
+            'stream_format',
+            provided,
+            request_id,
+            {'allowed_stream_formats': ('audio', 'sse')},
+        )
+        return _error_response(
+            "'stream_format' must be a string", 400, request_id, param='stream_format'
+        )
 
     if param == 'response_format':
         return _error_response(
@@ -396,7 +405,7 @@ def generate_speech():
         voice: string (optional) - Voice ID or path
         response_format: string (optional) - Audio format
         format: string (optional) - Alias for response_format
-        stream: boolean (optional) - Enable streaming
+        stream_format: string (optional) - "audio" (raw bytes) or "sse" (not supported)
         speed: number (optional) - Speech rate multiplier
         steps: integer (optional) - Diffusion steps (quality vs speed)
         lang: string (optional) - Language code (e.g., "en")
@@ -415,6 +424,22 @@ def generate_speech():
     if not data:
         return _error_response('Missing JSON body', 400, request_id)
 
+    if isinstance(data, dict) and 'stream' in data:
+        _log_invalid_param(
+            'stream',
+            data.get('stream'),
+            request_id,
+            {'hint': "Use 'stream_format' set to 'audio' for streaming."},
+        )
+        return _error_response(
+            "'stream' is not supported; use 'stream_format' instead",
+            400,
+            request_id,
+            param='stream',
+            error_type='invalid_request_error',
+            extra={'hint': "Set 'stream_format' to 'audio' for raw audio streaming."},
+        )
+
     try:
         payload = SpeechRequest.model_validate(data)
     except ValidationError as exc:
@@ -430,7 +455,7 @@ def generate_speech():
         )
 
     voice = payload.voice or Config.DEFAULT_VOICE
-    stream_request = payload.stream
+    stream_format = payload.stream_format
 
     response_format = payload.response_format
     if response_format is None:
@@ -480,10 +505,45 @@ def generate_speech():
         voice_state = tts.get_voice_state(voice)
 
         # Check if streaming should be used
-        if isinstance(stream_request, bool):
-            use_streaming = stream_request
+        if stream_format is not None:
+            normalized_format = stream_format.strip().lower()
+            allowed_formats = ('audio', 'sse')
+            if normalized_format not in allowed_formats:
+                _log_invalid_param(
+                    'stream_format',
+                    stream_format,
+                    request_id,
+                    {'allowed_stream_formats': allowed_formats},
+                )
+                return _error_response(
+                    "Invalid 'stream_format'. Use 'audio' for streaming.",
+                    400,
+                    request_id,
+                    param='stream_format',
+                    error_type='invalid_request_error',
+                    extra={
+                        'allowed_stream_formats': allowed_formats,
+                        'supported_stream_formats': ('audio',),
+                    },
+                )
+            if normalized_format == 'sse':
+                _log_invalid_param(
+                    'stream_format',
+                    stream_format,
+                    request_id,
+                    {'reason': 'sse_not_supported', 'supported_stream_formats': ('audio',)},
+                )
+                return _error_response(
+                    "stream_format 'sse' is not supported. Use 'audio' for streaming.",
+                    400,
+                    request_id,
+                    param='stream_format',
+                    error_type='invalid_request_error',
+                    extra={'supported_stream_formats': ('audio',)},
+                )
+            use_streaming = True
         else:
-            use_streaming = current_app.config.get('STREAM_DEFAULT', False)
+            use_streaming = False
 
         # Streaming is supported for all formats; for non-PCM/WAV we stream the
         # fully encoded file buffer (less latency-friendly but format-correct).

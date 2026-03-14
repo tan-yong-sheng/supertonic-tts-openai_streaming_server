@@ -33,15 +33,11 @@ Examples:
     # Custom port and voices directory
     python server.py --port 8080 --voices-dir ./my_voices
 
-    # Enable streaming by default
-    python server.py --stream
-
 Environment Variables:
     SUPERTONIC_HOST            Server host (default: 0.0.0.0)
     SUPERTONIC_PORT            Server port (default: 49112)
     SUPERTONIC_MODEL_PATH      Path to model directory
     SUPERTONIC_VOICES_DIR      Path to voices directory
-    SUPERTONIC_STREAM_DEFAULT  Enable streaming by default
     SUPERTONIC_TEXT_PREPROCESS_DEFAULT Enable text preprocessing by default
     SUPERTONIC_LOG_DIR         Log directory path
         """,
@@ -68,12 +64,6 @@ Environment Variables:
         help='Directory containing voice files',
     )
     parser.add_argument(
-        '--stream',
-        action='store_true',
-        default=Config.STREAM_DEFAULT,
-        help='Enable streaming by default for all requests',
-    )
-    parser.add_argument(
         '--text-preprocess',
         action='store_true',
         default=Config.TEXT_PREPROCESS_DEFAULT,
@@ -97,9 +87,7 @@ def main() -> None:
 
     os.environ.setdefault('SUPERTONIC_LOG_LEVEL', args.log_level)
 
-    app = create_app(
-        {'STREAM_DEFAULT': args.stream, 'TEXT_PREPROCESS_DEFAULT': args.text_preprocess}
-    )
+    app = create_app({'TEXT_PREPROCESS_DEFAULT': args.text_preprocess})
 
     logger = get_logger()
 

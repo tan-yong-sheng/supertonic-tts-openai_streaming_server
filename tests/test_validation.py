@@ -1,4 +1,6 @@
+import pytest
 
+@pytest.mark.unit
 def test_invalid_model_is_case_sensitive(client):
     resp = client.post(
         '/v1/audio/speech',
@@ -17,6 +19,7 @@ def test_invalid_model_is_case_sensitive(client):
     assert 'suggested_defaults' in err['details']
 
 
+@pytest.mark.unit
 def test_invalid_voice_returns_401(client):
     resp = client.post(
         '/v1/audio/speech',

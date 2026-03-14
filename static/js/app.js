@@ -28,11 +28,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 			if (fmt === 'pcm') {
 				infoLabel.textContent =
-					"Streaming is available for Raw PCM. Note: This format creates a specialized raw stream that will not play in the browser's audio player.";
+					"Streaming is available for Raw PCM via stream_format='audio'. Note: This format creates a specialized raw stream that will not play in the browser's audio player.";
 			} else {
 				// WAV
 				infoLabel.textContent =
-					'Streaming is available for WAV. The server streams audio chunks for lower latency.';
+					"Streaming is available for WAV via stream_format='audio'. The server streams audio chunks for lower latency.";
 			}
 		} else {
 			streamToggle.disabled = true;
@@ -42,7 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 			if (fmt === 'mp3') {
 				infoLabel.textContent =
-					'Streaming is not available for MP3 (Server limitation). A full file will be generated and played.';
+					'Streaming is disabled for MP3 in this UI. A full file will be generated and played.';
 			} else {
 				infoLabel.textContent = 'Streaming is not available for this format.';
 			}
@@ -431,24 +431,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 
 		// ... rest of generation logic ...
-		const stream = streamToggle.checked;
 		const fmt = formatSelect.value;
+		const streamFormat = streamToggle.checked ? 'audio' : null;
 
 		generateBtn.classList.add('loading');
 		generateBtn.disabled = true;
 		outputSection.classList.remove('active');
 
 		try {
+			const payload = {
+				model: 'supertonic-2',
+				input: text,
+				voice: voice,
+				response_format: fmt,
+			};
+			if (streamFormat) {
+				payload.stream_format = streamFormat;
+			}
+
 			const response = await fetch('/v1/audio/speech', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					model: 'supertonic-2',
-					input: text,
-					voice: voice,
-					response_format: fmt,
-					stream: stream,
-				}),
+				body: JSON.stringify(payload),
 			});
 
 			if (!response.ok) {
@@ -456,9 +460,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 				throw new Error(err.error || response.statusText);
 			}
 
-			// Currently we always fetch the full blob and play it once ready.
-			// The `stream` flag is still sent to the server, but client playback
-			// uses a single blob path for robustness.
+			// We always fetch the full blob and play it once ready.
+			// Streaming affects server response timing but not this client's playback path.
 			const blob = await response.blob();
 			const url = URL.createObjectURL(blob);
 			audioPlayer.src = url;

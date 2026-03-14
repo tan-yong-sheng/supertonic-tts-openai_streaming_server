@@ -31,7 +31,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
         static_folder=Config.get_static_folder(),
     )
 
-    app.config['STREAM_DEFAULT'] = Config.STREAM_DEFAULT
     app.config['TEXT_PREPROCESS_DEFAULT'] = Config.TEXT_PREPROCESS_DEFAULT
 
     if config_overrides:

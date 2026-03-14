@@ -1,6 +1,9 @@
+import pytest
+
 from app.config import Config
 
 
+@pytest.mark.unit
 def test_models_endpoint(client):
     resp = client.get('/v1/models')
     assert resp.status_code == 200

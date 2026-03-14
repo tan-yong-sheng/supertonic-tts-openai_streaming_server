@@ -7,7 +7,6 @@ import struct
 import wave
 
 import torch
-import torchaudio
 
 from app.logging_config import get_logger
 
@@ -82,6 +81,12 @@ def convert_audio(
             buffer.seek(0)
             return buffer
 
+        try:
+            import torchaudio
+        except ImportError as exc:
+            raise RuntimeError(
+                f"torchaudio is required to encode '{target_format}' format"
+            ) from exc
         torchaudio.save(buffer, audio_tensor, sample_rate, format=target_format)
         buffer.seek(0)
         return buffer

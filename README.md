@@ -44,7 +44,7 @@ See [infra/modal/GUIDE.md](/workspaces/supertonic-tts-openai_streaming_server/in
 - Supertonic inference is wired via the `supertonic` Python package.
 - Default sample rate is 44.1kHz (Supertonic output).
 - Custom voices support JSON styles or audio prompts when a voice extractor is configured.
-- Streaming defaults to Supertonic's built-in chunking; server-side chunking is used only when `chunk_chars` is explicitly provided.
+- Streaming is opt-in via `stream_format: "audio"`; server-side chunking is used only when `chunk_chars` is explicitly provided.
 - Model name is case-sensitive and currently only `supertonic-2` is accepted.
 
 ## Custom Voices (Audio Prompts)
