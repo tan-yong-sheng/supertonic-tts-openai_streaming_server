@@ -144,12 +144,7 @@ class Config:
         'F5',
     ]
 
-    MODEL_PRESETS = {
-        'tts-1': {'steps': 5},
-        'tts-1-hd': {'steps': 10},
-        'supertonic-tts-1': {'steps': 5},
-        'supertonic-tts-1-hd': {'steps': 10},
-    }
+    ALLOWED_MODELS = ['supertonic-2']
 
     VOICE_STYLE_EXTENSIONS = ('.json',)
     VOICE_AUDIO_EXTENSIONS = ('.wav', '.mp3', '.flac', '.ogg')

@@ -195,7 +195,7 @@ class SupertonicTTSService:
 **Request Parameters:**
 ```json
 {
-  "model": "supertonic-tts-1",        // Supertonic model identifier
+  "model": "supertonic-2",            // Supertonic model identifier
   "input": "Hello world",             // Text input
   "voice": "M1",                       // Supertonic voice ID (M1-M5, F1-F5, or custom file)
   "response_format": "mp3",           // mp3, wav, pcm, opus, flac

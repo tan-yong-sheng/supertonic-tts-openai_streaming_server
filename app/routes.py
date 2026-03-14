@@ -19,6 +19,18 @@ from flask import (
 import json
 import uuid
 
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+)
+
 from app.config import Config
 from app.logging_config import get_logger
 from app.services.audio import (
@@ -54,6 +66,48 @@ text_preprocessor = TextPreprocessor(
 
 _RE_SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
 _RE_CLAUSE_SPLIT = re.compile(r'(?<=[,;:])\s+')
+
+
+class SpeechRequest(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    model: StrictStr | None = None
+    input: StrictStr = Field(..., min_length=1)
+    voice: StrictStr | None = None
+    response_format: StrictStr | None = None
+    format: StrictStr | None = None
+    stream: StrictBool | None = None
+    speed: StrictFloat | StrictInt | None = None
+    steps: StrictInt | None = None
+    lang: StrictStr | None = None
+    language: StrictStr | None = None
+    max_chunk_length: StrictInt | None = None
+    silence_duration: StrictFloat | StrictInt | None = None
+
+    @field_validator('model')
+    @classmethod
+    def _validate_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if value not in Config.ALLOWED_MODELS:
+            raise ValueError(
+                f"Unsupported model '{value}'. Allowed: {', '.join(Config.ALLOWED_MODELS)}."
+            )
+        return value
+
+    @field_validator('voice', mode='before')
+    @classmethod
+    def _normalize_voice(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            candidate = value.get('id') or value.get('name')
+            if not candidate:
+                raise ValueError("Voice object must include 'id' or 'name'.")
+            return candidate
+        if isinstance(value, str):
+            return value
+        raise ValueError("'voice' must be a string")
 
 
 def _split_at_clauses(text: str, target: int, max_chars: int) -> list[str]:
@@ -134,6 +188,102 @@ def _smart_chunk_text(text: str, target_chars: int, max_chars: int) -> list[str]
     return chunks if chunks else [text]
 
 
+def _default_param_suggestions() -> dict:
+    model_default = Config.ALLOWED_MODELS[0] if Config.ALLOWED_MODELS else Config.MODEL_NAME
+    return {
+        'model': model_default,
+        'voice': Config.DEFAULT_VOICE,
+        'speed': Config.DEFAULT_SPEED,
+        'steps': Config.DEFAULT_STEPS,
+        'lang': Config.DEFAULT_LANG,
+        'response_format': 'mp3',
+    }
+
+
+def _log_invalid_param(param: str, provided, request_id: str, extra: dict | None = None) -> None:
+    payload = {
+        'param': param,
+        'provided': provided,
+        'defaults': _default_param_suggestions(),
+        'request_id': request_id,
+    }
+    if extra:
+        payload.update(extra)
+    logger.warning('Invalid request parameter: %s', payload)
+
+
+def _handle_validation_error(exc: ValidationError, raw_data: dict | None, request_id: str):
+    errors = exc.errors()
+    if not errors:
+        return _error_response('Invalid request', 400, request_id)
+
+    first = errors[0]
+    loc = first.get('loc', ())
+    param = loc[0] if loc else None
+    err_type = first.get('type', '')
+
+    if param == 'model':
+        provided = raw_data.get('model') if isinstance(raw_data, dict) else None
+        _log_invalid_param(
+            'model',
+            provided,
+            request_id,
+            {'allowed_models': Config.ALLOWED_MODELS},
+        )
+        return _error_response(
+            f"Unsupported model '{provided}'. Use '{Config.ALLOWED_MODELS[0]}' (case-sensitive).",
+            401,
+            request_id,
+            param='model',
+            error_type='invalid_request_error',
+            extra={
+                'allowed_models': Config.ALLOWED_MODELS,
+                'hint': 'Use /v1/models to list available models',
+                'suggested_defaults': _default_param_suggestions(),
+            },
+        )
+
+    if param == 'input':
+        if err_type in ('missing', 'string_too_short'):
+            return _error_response("Missing 'input' text", 400, request_id, param='input')
+        if err_type in ('string_type',):
+            return _error_response("'input' must be a string", 400, request_id, param='input')
+
+    if param == 'voice':
+        return _error_response("'voice' must be a string", 400, request_id, param='voice')
+
+    if param == 'stream':
+        return _error_response("'stream' must be a boolean", 400, request_id, param='stream')
+
+    if param == 'response_format':
+        return _error_response(
+            "'response_format' must be a string", 400, request_id, param='response_format'
+        )
+
+    if param == 'format':
+        return _error_response("'format' must be a string", 400, request_id, param='format')
+
+    if param in ('lang', 'language'):
+        return _error_response("'lang' must be a string", 400, request_id, param='lang')
+
+    if param == 'max_chunk_length':
+        return _error_response(
+            "'max_chunk_length' must be an integer", 400, request_id, param='max_chunk_length'
+        )
+
+    if param == 'silence_duration':
+        return _error_response(
+            "'silence_duration' must be a number", 400, request_id, param='silence_duration'
+        )
+
+    if param == 'speed':
+        return _error_response("'speed' must be a number", 400, request_id, param='speed')
+
+    if param == 'steps':
+        return _error_response("'steps' must be an integer", 400, request_id, param='steps')
+
+    return _error_response(first.get('msg', 'Invalid request'), 400, request_id, param=param)
+
 @api.route('/')
 def home():
     """Serve the web interface."""
@@ -147,6 +297,7 @@ def home():
                     'status': 'ok',
                     'endpoints': {
                         'health': '/health',
+                        'models': '/v1/models',
                         'voices': '/v1/voices',
                         'speech': '/v1/audio/speech',
                     },
@@ -211,13 +362,36 @@ def list_voices():
     )
 
 
+@api.route('/v1/models', methods=['GET'])
+def list_models():
+    """
+    List available models.
+
+    Returns OpenAI-compatible model list format.
+    """
+    models = Config.ALLOWED_MODELS
+    return jsonify(
+        {
+            'object': 'list',
+            'data': [
+                {
+                    'id': model_id,
+                    'object': 'model',
+                    'owned_by': 'supertonic',
+                }
+                for model_id in models
+            ],
+        }
+    )
+
+
 @api.route('/v1/audio/speech', methods=['POST'])
 def generate_speech():
     """
     OpenAI-compatible speech generation endpoint.
 
     Request body:
-        model: string (optional) - OpenAI model name (e.g., tts-1, tts-1-hd)
+        model: string (optional) - Model name (case-sensitive, only "supertonic-2")
         input: string (required) - Text to synthesize
         voice: string (optional) - Voice ID or path
         response_format: string (optional) - Audio format
@@ -241,15 +415,12 @@ def generate_speech():
     if not data:
         return _error_response('Missing JSON body', 400, request_id)
 
-    model_name = data.get('model')
-    if model_name is not None and not isinstance(model_name, str):
-        return _error_response("'model' must be a string", 400, request_id, param='model')
+    try:
+        payload = SpeechRequest.model_validate(data)
+    except ValidationError as exc:
+        return _handle_validation_error(exc, data, request_id)
 
-    text = data.get('input')
-    if not text:
-        return _error_response("Missing 'input' text", 400, request_id, param='input')
-    if not isinstance(text, str):
-        return _error_response("'input' must be a string", 400, request_id, param='input')
+    text = payload.input
     if len(text) > Config.MAX_INPUT_CHARS:
         return _error_response(
             f"'input' exceeds max length of {Config.MAX_INPUT_CHARS} characters",
@@ -258,52 +429,27 @@ def generate_speech():
             param='input',
         )
 
-    voice = data.get('voice', Config.DEFAULT_VOICE)
-    if isinstance(voice, dict):
-        voice = voice.get('id') or voice.get('name')
-    if not isinstance(voice, str):
-        return _error_response("'voice' must be a string", 400, request_id, param='voice')
-    stream_request = data.get('stream')
-    if stream_request is not None and not isinstance(stream_request, bool):
-        return _error_response("'stream' must be a boolean", 400, request_id, param='stream')
+    voice = payload.voice or Config.DEFAULT_VOICE
+    stream_request = payload.stream
 
-    response_format = data.get('response_format')
+    response_format = payload.response_format
     if response_format is None:
-        response_format = data.get('format', 'mp3')
-    if not isinstance(response_format, str):
-        return _error_response(
-            "'response_format' must be a string", 400, request_id, param='response_format'
-        )
+        response_format = payload.format or 'mp3'
     target_format = validate_format(response_format)
 
-    lang = data.get('lang', data.get('language', Config.DEFAULT_LANG))
-    if not isinstance(lang, str):
-        return _error_response("'lang' must be a string", 400, request_id, param='lang')
-
-    max_chunk_length = data.get('max_chunk_length', Config.DEFAULT_MAX_CHUNK_LENGTH)
-    if not isinstance(max_chunk_length, int):
-        return _error_response(
-            "'max_chunk_length' must be an integer", 400, request_id, param='max_chunk_length'
-        )
-
-    silence_duration = data.get('silence_duration', Config.DEFAULT_SILENCE_DURATION)
-    if not isinstance(silence_duration, (int, float)):
-        return _error_response(
-            "'silence_duration' must be a number", 400, request_id, param='silence_duration'
-        )
-
-    speed = data.get('speed', Config.DEFAULT_SPEED)
-    if not isinstance(speed, (int, float)):
-        return _error_response("'speed' must be a number", 400, request_id, param='speed')
-
-    steps = data.get('steps', Config.DEFAULT_STEPS)
-    if not isinstance(steps, int):
-        return _error_response("'steps' must be an integer", 400, request_id, param='steps')
-
-    if model_name:
-        preset = Config.MODEL_PRESETS.get(model_name.lower())
-        if preset and 'steps' not in data:
-            steps = preset.get('steps', steps)
+    lang = payload.lang or payload.language or Config.DEFAULT_LANG
+    max_chunk_length = (
+        payload.max_chunk_length
+        if payload.max_chunk_length is not None
+        else Config.DEFAULT_MAX_CHUNK_LENGTH
+    )
+    silence_duration = (
+        payload.silence_duration
+        if payload.silence_duration is not None
+        else Config.DEFAULT_SILENCE_DURATION
+    )
+    speed = payload.speed if payload.speed is not None else Config.DEFAULT_SPEED
+    steps = payload.steps if payload.steps is not None else Config.DEFAULT_STEPS
 
     tts = get_tts_service()
 
@@ -311,14 +457,22 @@ def generate_speech():
     is_valid, msg = tts.validate_voice(voice)
     if not is_valid:
         available = [v['id'] for v in tts.list_voices()]
+        _log_invalid_param(
+            'voice',
+            voice,
+            request_id,
+            {'available_voices': available[:10]},
+        )
         return _error_response(
             f"Voice '{voice}' not found",
-            400,
+            401,
             request_id,
             param='voice',
+            error_type='invalid_request_error',
             extra={
                 'available_voices': available[:10],  # Limit to first 10
                 'hint': 'Use /v1/voices to see all available voices',
+                'suggested_defaults': _default_param_suggestions(),
             },
         )
 

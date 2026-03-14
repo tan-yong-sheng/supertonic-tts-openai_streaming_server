@@ -443,7 +443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					model: 'supertonic-tts-1',
+					model: 'supertonic-2',
 					input: text,
 					voice: voice,
 					response_format: fmt,
